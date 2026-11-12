@@ -33,7 +33,7 @@ public class Api30Helper {
                                 android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(softwareBitmap, targetWidth, targetHeight, true);
                                 
                                 java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-                                scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 60, out);
+                                scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, out);
                                 callback.onSuccess(out.toByteArray());
                                 
                                 scaled.recycle();

